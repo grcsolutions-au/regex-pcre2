@@ -1,16 +1,17 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-|
-This exports instances of the high level API and the medium level
-API of 'compile','execute', and 'regexec'.
+This exports instances of the high-level API and the medium-level
+API of 'compile', 'execute', and 'regexec'.
 -}
-{- Copyright   :  (c) Chris Kuklewicz 2007 -}
-module Text.Regex.PCRE.Sequence(
+{- Copyright: (c) 2025 Homebrew Holdings -}
+{- Copyright: (c) 2007 Chris Kuklewicz -}
+module Text.Regex.PCRE2.Sequence(
   -- ** Types
   Regex,
   MatchOffset,
   MatchLength,
   CompOption(CompOption),
-  ExecOption(ExecOption),
+  MatchOption(MatchOption),
   ReturnCode,
   WrapError,
   -- ** Miscellaneous
@@ -20,35 +21,54 @@ module Text.Regex.PCRE.Sequence(
   compile,
   execute,
   regexec,
-  -- ** Constants for CompOption
+  -- ** CompOption flags
   compBlank,
   compAnchored,
+  compEndAnchored, -- new in v1.0.0.0 (pcre2)
+  compAllowEmptyClass, -- new in v1.0.0.0 (pcre2)
+  compAltBSUX, -- new in v1.0.0.0 (pcre2)
+  compAltExtendedClass, -- new in v1.0.0.0 (pcre2)
+  compAltVerbnames, -- new in v1.0.0.0 (pcre2)
   compAutoCallout,
   compCaseless,
   compDollarEndOnly,
   compDotAll,
+  compDupNames, -- new in v1.0.0.0 (pcre2)
   compExtended,
-  compExtra,
+  compExtendedMore, -- new in v1.0.0.0 (pcre2)
+--   compExtra, -- obsoleted in v1.0.0.0, pcre2 is always strict in this way
   compFirstLine,
+  compLiteral, -- new in v1.0.0.0 (pcre2)
+  compMatchUnsetBackref, -- new in v1.0.0.0 (pcre2)
   compMultiline,
+  compNeverBackslashC, -- new in v1.0.0.0 (pcre2)
   compNoAutoCapture,
+  compNoAutoPossess, -- new in v1.0.0.0 (pcre2)
+  compNoDotstarAnchor, -- new in v1.0.0.0 (pcre2)
+--   compNoUTF8Check, -- obsoleted in v1.0.0.0 (pcre2), use compNoUTFCheck
+  compNoUTFCheck,
   compUngreedy,
-  compUTF8,
-  compNoUTF8Check,
-  -- ** Constants for ExecOption
-  execBlank,
-  execAnchored,
-  execNotBOL,
-  execNotEOL,
-  execNotEmpty,
-  execNoUTF8Check,
-  execPartial
+--   compUTF8, -- obsoleted in v1.0.0.0 (pcre2), use compUTF
+  compUTF,
+  -- ** MatchOption flags, new to v1.0.0.0 (pcre2), replacing the obsolete ExecOptions
+  matchBlank,
+  matchAnchored,
+  matchCopyMatchedSubject, -- new in v1.0.0.0 (pcre2)
+  matchDisableRecurseLoopCheck, -- new in v1.0.0.0 (pcre2)
+  matchEndAnchored, -- new in v1.0.0.0 (pcre2)
+  matchNotBOL,
+  matchNotEOL,
+  matchNotEmpty,
+  matchNotEmptyAtStart, -- new in v1.0.0.0 (pcre2)
+  matchNoUTFCheck,
+  matchPartialHard,
+  matchPartialSoft
   ) where
 
 import Prelude hiding (fail)
 import Control.Monad.Fail (MonadFail(fail))
 
-import Text.Regex.PCRE.Wrap -- all
+import Text.Regex.PCRE2.Wrap -- all
 --import Foreign.C.String(withCStringLen,withCString)
 import Data.Array(Array,listArray)
 import System.IO.Unsafe(unsafePerformIO)
@@ -66,10 +86,10 @@ instance RegexContext Regex (Seq Char) (Seq Char) where
   matchM = polymatchM
 
 unwrap :: (Show e) => Either e v -> IO v
-unwrap x = case x of Left err -> fail ("Text.Regex.PCRE.Sequence died: "++ show err)
+unwrap x = case x of Left err -> fail ("Text.Regex.PCRE2.Sequence died: "++ show err)
                      Right v -> return v
 
-instance RegexMaker Regex CompOption ExecOption (Seq Char) where
+instance RegexMaker Regex CompOption MatchOption (Seq Char) where
   makeRegexOpts c e pattern = unsafePerformIO $
     compile c e pattern >>= unwrap
   makeRegexOptsM c e pattern = either (fail.show) return $ unsafePerformIO $
@@ -80,21 +100,21 @@ instance RegexLike Regex (Seq Char) where
     withSeq str (wrapTest 0 regex) >>= unwrap
   matchOnce regex str = unsafePerformIO $
     execute regex str >>= unwrap
-  matchAll regex str = unsafePerformIO $ 
+  matchAll regex str = unsafePerformIO $
     withSeq str (wrapMatchAll regex) >>= unwrap
-  matchCount regex str = unsafePerformIO $ 
+  matchCount regex str = unsafePerformIO $
     withSeq str (wrapCount regex) >>= unwrap
 
 -- | Compiles a regular expression
-compile :: CompOption -- ^ Flags (summed together)
-        -> ExecOption -- ^ Flags (summed together)
-        -> (Seq Char)     -- ^ The regular expression to compile
+compile :: CompOption  -- ^ Flags (summed together)
+        -> MatchOption -- ^ Flags (summed together)
+        -> (Seq Char)  -- ^ The regular expression to compile
         -> IO (Either (MatchOffset,String) Regex) -- ^ Returns: an error string and offset or the compiled regular expression
-compile c e pattern = withSeq0 pattern (wrapCompile c e)
+compile c e pattern = withSeq pattern (wrapCompile c e)
 
 -- | Matches a regular expression against a string
 execute :: Regex      -- ^ Compiled regular expression
-        -> (Seq Char)     -- ^ (Seq Char) to match against
+        -> (Seq Char) -- ^ (Seq Char) to match against
         -> IO (Either WrapError (Maybe (Array Int (MatchOffset,MatchLength))))
                 -- ^ Returns: 'Nothing' if the regex did not match the
                 -- string, or:
@@ -104,7 +124,7 @@ execute regex str = do
   case maybeStartEnd of
     Right Nothing -> return (Right Nothing)
 --  Right (Just []) -> fail "got [] back!" -- should never happen
-    Right (Just parts) -> 
+    Right (Just parts) ->
       return . Right . Just . listArray (0,pred (length parts))
       . map (\(s,e)->(fromIntegral s, fromIntegral (e-s))) $ parts
     Left err -> return (Left err)
@@ -119,7 +139,7 @@ regexec regex str = do
   let getSub (start,stop) | start == unusedOffset = S.empty
                           | otherwise = extract (start,stop-start) str
       matchedParts [] = (S.empty,S.empty,str,[]) -- no information
-      matchedParts (matchedStartStop@(start,stop):subStartStop) = 
+      matchedParts (matchedStartStop@(start,stop):subStartStop) =
         (before start str
         ,getSub matchedStartStop
         ,after stop str
@@ -133,7 +153,7 @@ regexec regex str = do
 
 withSeq :: Seq Char -> (CStringLen -> IO a) -> IO a
 withSeq s f =
-  let -- Ensure null at end of s
+  let
       len = S.length s
       pokes p a | seq p (seq a False) = undefined
                 | otherwise =
@@ -141,17 +161,3 @@ withSeq s f =
           EmptyL -> return ()
           c :< a' -> poke p (castCharToCChar c) >> pokes (advancePtr p 1) a'
   in allocaBytes (S.length s) (\ptr -> pokes ptr s >> f (ptr,len))
-
-withSeq0 :: Seq Char -> (CString -> IO a) -> IO a
-withSeq0 s f =
-  let -- Ensure null at end of s
-      s' = case viewr s of                -- bang !s'
-             EmptyR -> singleton '\0'
-             _ :> '\0' -> s
-             _ -> s |> '\0'
-      pokes p a | seq p (seq a False) = undefined
-                | otherwise =
-        case viewl a of         -- bang pokes !p !a
-          EmptyL -> return ()
-          c :< a' -> poke p (castCharToCChar c) >> pokes (advancePtr p 1) a'
-  in allocaBytes (S.length s') (\ptr -> pokes ptr s' >> f ptr)

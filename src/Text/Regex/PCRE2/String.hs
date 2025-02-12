@@ -1,16 +1,17 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-|
-This exports instances of the high level API and the medium level
-API of 'compile','execute', and 'regexec'.
+This exports instances of the high-level API and the medium-level
+API of 'compile', 'execute', and 'regexec'.
 -}
-{- Copyright   :  (c) Chris Kuklewicz 2007 -}
-module Text.Regex.PCRE.String(
+{- Copyright: (c) 2025 Homebrew Holdings -}
+{- Copyright: (c) 2007 Chris Kuklewicz -}
+module Text.Regex.PCRE2.String(
   -- ** Types
   Regex,
   MatchOffset,
   MatchLength,
   CompOption(CompOption),
-  ExecOption(ExecOption),
+  MatchOption(MatchOption),
   ReturnCode,
   WrapError,
   -- ** Miscellaneous
@@ -20,36 +21,55 @@ module Text.Regex.PCRE.String(
   compile,
   execute,
   regexec,
-  -- ** Constants for CompOption
+  -- ** CompOption flags
   compBlank,
   compAnchored,
+  compEndAnchored, -- new in v1.0.0.0 (pcre2)
+  compAllowEmptyClass, -- new in v1.0.0.0 (pcre2)
+  compAltBSUX, -- new in v1.0.0.0 (pcre2)
+  compAltExtendedClass, -- new in v1.0.0.0 (pcre2)
+  compAltVerbnames, -- new in v1.0.0.0 (pcre2)
   compAutoCallout,
   compCaseless,
   compDollarEndOnly,
   compDotAll,
+  compDupNames, -- new in v1.0.0.0 (pcre2)
   compExtended,
-  compExtra,
+  compExtendedMore, -- new in v1.0.0.0 (pcre2)
+--   compExtra, -- obsoleted in v1.0.0.0, pcre2 is always strict in this way
   compFirstLine,
+  compLiteral, -- new in v1.0.0.0 (pcre2)
+  compMatchUnsetBackref, -- new in v1.0.0.0 (pcre2)
   compMultiline,
+  compNeverBackslashC, -- new in v1.0.0.0 (pcre2)
   compNoAutoCapture,
+  compNoAutoPossess, -- new in v1.0.0.0 (pcre2)
+  compNoDotstarAnchor, -- new in v1.0.0.0 (pcre2)
+--   compNoUTF8Check, -- obsoleted in v1.0.0.0 (pcre2), use compNoUTFCheck
+  compNoUTFCheck,
   compUngreedy,
-  compUTF8,
-  compNoUTF8Check,
-  -- ** Constants for ExecOption
-  execBlank,
-  execAnchored,
-  execNotBOL,
-  execNotEOL,
-  execNotEmpty,
-  execNoUTF8Check,
-  execPartial
+--   compUTF8, -- obsoleted in v1.0.0.0 (pcre2), use compUTF
+  compUTF,
+  -- ** MatchOption flags, new to v1.0.0.0 (pcre2), replacing the obsolete ExecOptions
+  matchBlank,
+  matchAnchored,
+  matchCopyMatchedSubject, -- new in v1.0.0.0 (pcre2)
+  matchDisableRecurseLoopCheck, -- new in v1.0.0.0 (pcre2)
+  matchEndAnchored, -- new in v1.0.0.0 (pcre2)
+  matchNotBOL,
+  matchNotEOL,
+  matchNotEmpty,
+  matchNotEmptyAtStart, -- new in v1.0.0.0 (pcre2)
+  matchNoUTFCheck,
+  matchPartialHard,
+  matchPartialSoft
   ) where
 
 import Prelude hiding (fail)
 import Control.Monad.Fail (MonadFail(fail))
 
-import Text.Regex.PCRE.Wrap -- all
-import Foreign.C.String(withCStringLen,withCString)
+import Text.Regex.PCRE2.Wrap -- all
+import Foreign.C.String(withCStringLen)
 import Data.Array(Array,listArray)
 import System.IO.Unsafe(unsafePerformIO)
 import Text.Regex.Base.RegexLike(RegexMaker(..),RegexLike(..),RegexContext(..),MatchLength,MatchOffset)
@@ -60,10 +80,10 @@ instance RegexContext Regex String String where
   matchM = polymatchM
 
 unwrap :: (Show e) => Either e v -> IO v
-unwrap x = case x of Left err -> fail ("Text.Regex.PCRE.String died: "++ show err)
+unwrap x = case x of Left err -> fail ("Text.Regex.PCRE2.String died: "++ show err)
                      Right v -> return v
 
-instance RegexMaker Regex CompOption ExecOption String where
+instance RegexMaker Regex CompOption MatchOption String where
   makeRegexOpts c e pattern = unsafePerformIO $
     compile c e pattern >>= unwrap
   makeRegexOptsM c e pattern = either (fail.show) return $ unsafePerformIO $
@@ -80,15 +100,15 @@ instance RegexLike Regex String where
     withCStringLen str (wrapCount regex) >>= unwrap
 
 -- | Compiles a regular expression
-compile :: CompOption -- ^ Flags (summed together)
-        -> ExecOption -- ^ Flags (summed together)
-        -> String     -- ^ The regular expression to compile
+compile :: CompOption  -- ^ Flags (summed together)
+        -> MatchOption -- ^ Flags (summed together)
+        -> String      -- ^ The regular expression to compile
         -> IO (Either (MatchOffset,String) Regex) -- ^ Returns: an error string and offset or the compiled regular expression
-compile c e pattern = withCString pattern (wrapCompile c e)
+compile c e pattern = withCStringLen pattern (wrapCompile c e)
 
 -- | Matches a regular expression against a string
-execute :: Regex      -- ^ Compiled regular expression
-        -> String     -- ^ String to match against
+execute :: Regex  -- ^ Compiled regular expression
+        -> String -- ^ String to match against
         -> IO (Either WrapError (Maybe (Array Int (MatchOffset,MatchLength))))
                 -- ^ Returns: 'Nothing' if the regex did not match the
                 -- string, or:
