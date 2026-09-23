@@ -1,6 +1,6 @@
 Cabal-Version:          1.12
 Name:                   regex-pcre2
-Version:                1.0.0.0
+Version:                1.0.0.1
 
 build-type:             Simple
 license:                BSD3
@@ -36,7 +36,7 @@ source-repository head
 source-repository this
   type:     git
   location: https://dev.piglet.ch/pdr/regex-pcre2
-  tag:      v1.0.0.0
+  tag:      v1.0.0.1
 
 library
   hs-source-dirs: src
