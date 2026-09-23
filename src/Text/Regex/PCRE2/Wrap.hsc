@@ -235,7 +235,11 @@ wrapCompile flags e (pattern,len) = do
           when (st == nullPtr) (fail "Text.Regex.PCRE2.Wrap.wrapCompile could not allocate a CInt for the capture count.")
           ok0 <- c_pcre2_pattern_info pcre_ptr pcre2InfoCapturecount st
           when (ok0 /= 0) (fail $ "Impossible/fatal: Haskell package regex-pcre2 error in Text.Posix.PCRE2.Wrap.getNumSubs' of ok0 /= 0.  ok0 is from pcre2_pattern_info c-function which returned  "++show ok0)
-          n <- peek st
+          -- In theory on a system with 32-bit Ints, this could underflow although to do so
+          -- you'd have to produce a regex with over 2^31 capture groups on a 32 bit system
+          -- which is probably pretty hard/impossible to do in practice,
+          -- given each capture group requires two parentheses.
+          n <- fromIntegral <$> peek st
           regex <- newForeignPtr c_pcre2_code_free pcre_ptr
           return . Right $ Regex regex flags e n
 
@@ -348,7 +352,7 @@ foreign import ccall unsafe "pcre2.h pcre2_compile_8"
 foreign import ccall unsafe "pcre2.h pcre2_get_error_message_8"
   c_pcre2_get_error_message :: CInt -> CString -> CSize -> IO CInt
 foreign import ccall unsafe "pcre2.h pcre2_pattern_info_8"
-  c_pcre2_pattern_info :: Ptr PCRE -> InfoWhat -> Ptr a -> IO CInt
+  c_pcre2_pattern_info :: Ptr PCRE -> InfoWhat -> Ptr Word32 -> IO CInt
 foreign import ccall unsafe "pcre2.h &pcre2_code_free_8"
   c_pcre2_code_free :: FinalizerPtr PCRE
 foreign import ccall unsafe "pcre2.h pcre2_match_data_create_8"
@@ -412,6 +416,35 @@ foreign import ccall unsafe "pcre2.h pcre2_match_data_free_8"
   retNoMemory = PCRE2_ERROR_NOMEMORY, \
   retNoSubstring = PCRE2_ERROR_NOSUBSTRING
 
+{-|
+NOTE WELL BEFORE CHANGING 'InfoWhat'
+
+The function 'c_pcre2_pattern_info' above has the following signature:
+
+> c_pcre2_pattern_info :: Ptr PCRE -> InfoWhat -> Ptr Word32 -> IO CInt
+
+Note the type of the third argument: it is a @Ptr Word32@.
+
+This is okay, as long as 'InfoWhat' is defined as below, having only the
+enum value @PCRE2_INFO_CAPTURECOUNT@.
+
+If one wants to add new enum values other than
+@PCRE2_INFO_CAPTURECOUNT@, check this page first:
+
+<https://www.pcre.org/current/doc/html/pcre2_pattern_info.html>
+
+Note that:
+
+* @PCRE2_INFO_FIRSTBITMAP@
+* @PCRE2_INFO_JITSIZE@
+* @PCRE2_INFO_NAMETABLE@
+* @PCRE2_INFO_SIZE@
+
+do not take a @Ptr Word32@ as their argument. Giving them one will cause
+memory corruption.
+
+So DO NOT add the above values to the InfoWhat enum.
+-}
 #enum InfoWhat,InfoWhat, \
   PCRE2_INFO_CAPTURECOUNT
 
